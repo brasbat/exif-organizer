@@ -111,4 +111,5 @@ The distribution is written to `build/install/exif-organizer`.
 
 ## License
 
-No license has currently been specified for this repository.
+This project is licensed under the **Do Whatever You Want But Buy Me a Beer
+License**. See [LICENSE](LICENSE) for the complete terms.
