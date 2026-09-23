@@ -53,7 +53,7 @@ jobs:
           jpackage `
             --type exe `
             --name "EXIF Organizer" `
-            --app-version "0.5.0" `
+            --app-version "1.0.5" `
             --input $input `
             --main-jar $jar `
             --main-class org.brasbat.exiforganizer.Launcher `
@@ -62,7 +62,7 @@ jobs:
             --win-menu `
             --win-shortcut `
             --vendor "brasbat"
-          Move-Item "build/release/EXIF Organizer-0.5.0.exe" "build/release/${{ matrix.asset }}"
+          Move-Item "build/release/EXIF Organizer-1.0.5.exe" "build/release/${{ matrix.asset }}"
 
       - name: Package macOS disk image
         if: runner.os == 'macOS'
@@ -72,13 +72,13 @@ jobs:
           jpackage \
             --type dmg \
             --name "EXIF Organizer" \
-            --app-version "0.5.0" \
+            --app-version "1.0.5" \
             --input build/install/exif-organizer/lib \
             --main-jar exif-organizer-0.5.0-beta.jar \
             --main-class org.brasbat.exiforganizer.Launcher \
             --dest build/release \
             --mac-package-name "EXIF Organizer"
-          mv "build/release/EXIF Organizer-0.5.0.dmg" "build/release/${{ matrix.asset }}"
+          mv "build/release/EXIF Organizer-1.0.5.dmg" "build/release/${{ matrix.asset }}"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
