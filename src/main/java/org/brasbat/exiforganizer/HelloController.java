@@ -20,19 +20,22 @@ import java.nio.file.*;
 import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class HelloController {
     @FXML private ListView<String> sourceFoldersView;
-    @FXML private ListView<SyncSetup> syncSetupsView;
     @FXML private TextField destinationField;
     @FXML private VBox folderStructureEditor;
     @FXML private CheckBox includeSubfoldersCheckBox;
     @FXML private CheckBox moveCheckBox;
+    @FXML private VBox imageFormatSelection;
     @FXML private Button scanButton;
     @FXML private Button organizeButton;
-    @FXML private Button rerunButton;
-    @FXML private Button deleteSetupButton;
     @FXML private Label statusLabel;
     @FXML private ProgressBar progressBar;
     @FXML private TreeView<String> previewTree;
@@ -42,7 +45,6 @@ public class HelloController {
     private final ObservableList<String> sourceFolders = FXCollections.observableArrayList();
     private final ObservableList<String> structureTokens = FXCollections.observableArrayList();
     private final ObservableList<String> statistics = FXCollections.observableArrayList();
-    private final ObservableList<SyncSetup> syncSetups = FXCollections.observableArrayList();
     private final ObservableList<String> availableProperties = FXCollections.observableArrayList(
             "{Year}", "{Month}", "{Day}", "{Hour}", "{Minute}", "{Second}",
             "{Make}", "{Model}", "{Location}", "{DateTimeOriginal:yyyy-MM-dd}");
@@ -50,8 +52,7 @@ public class HelloController {
     private boolean busy;
     private boolean destinationIsDefault;
     private boolean settingDefaultDestination;
-    private boolean loadingSetup;
-    private boolean pendingRerun;
+    private Map<String, CheckBox> imageFormatCheckBoxes = new LinkedHashMap<>();
 
     @FXML
     private void initialize() {
@@ -59,21 +60,6 @@ public class HelloController {
         rebuildStructureEditor();
         progressBar.setVisible(false);
         sourceFoldersView.setItems(sourceFolders);
-        syncSetupsView.setItems(syncSetups);
-        syncSetupsView.setPlaceholder(new Label("No saved setups yet."));
-        syncSetupsView.getSelectionModel().selectedItemProperty().addListener(
-                (observable, oldSetup, newSetup) -> {
-                    updateSetupButtons();
-                    if (newSetup != null && !loadingSetup) {
-                        loadSetup(newSetup);
-                    }
-                });
-        try {
-            syncSetups.setAll(SyncSetupStore.load());
-        } catch (IOException ex) {
-            new Alert(Alert.AlertType.WARNING, "Could not load saved sync setups: "
-                    + ex.getMessage()).showAndWait();
-        }
         previewTree.setShowRoot(true);
         previewTree.setRoot(new TreeItem<>("Choose a source folder"));
         statisticsView.setItems(statistics);
@@ -85,88 +71,6 @@ public class HelloController {
             updateOrganizeButtonState();
         });
         updateOrganizeButtonState();
-        updateSetupButtons();
-    }
-
-    @FXML
-    private void saveSetup() {
-        if (sourceFolders.isEmpty() || destinationField.getText().trim().isEmpty()) {
-            new Alert(Alert.AlertType.WARNING,
-                    "Choose at least one source folder and a destination before saving.").showAndWait();
-            return;
-        }
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.setTitle("Save sync setup");
-        dialog.setHeaderText("Save the current sync configuration");
-        dialog.setContentText("Setup name:");
-        dialog.showAndWait().ifPresent(name -> {
-            String trimmedName = name.trim();
-            if (trimmedName.isEmpty()) {
-                new Alert(Alert.AlertType.WARNING, "Enter a setup name.").showAndWait();
-                return;
-            }
-            SyncSetup setup = currentSetup(trimmedName);
-            for (int index = 0; index < syncSetups.size(); index++) {
-                if (syncSetups.get(index).getName().equalsIgnoreCase(trimmedName)) {
-                    syncSetups.set(index, setup);
-                    persistSetups();
-                    syncSetupsView.getSelectionModel().select(index);
-                    return;
-                }
-            }
-            syncSetups.add(setup);
-            persistSetups();
-            syncSetupsView.getSelectionModel().select(setup);
-        });
-    }
-
-    @FXML
-    private void rerunSelected() {
-        SyncSetup setup = syncSetupsView.getSelectionModel().getSelectedItem();
-        if (setup == null) {
-            return;
-        }
-        pendingRerun = true;
-        scan();
-    }
-
-    @FXML
-    private void deleteSelectedSetup() {
-        int index = syncSetupsView.getSelectionModel().getSelectedIndex();
-        if (index < 0) {
-            return;
-        }
-        syncSetups.remove(index);
-        persistSetups();
-        updateSetupButtons();
-    }
-
-    private SyncSetup currentSetup(String name) {
-        return new SyncSetup(name, sourceFolders, destinationField.getText().trim(),
-                includeSubfoldersCheckBox.isSelected(), moveCheckBox.isSelected(), structureTokens);
-    }
-
-    private void loadSetup(SyncSetup setup) {
-        loadingSetup = true;
-        sourceFolders.setAll(setup.getSourceFolders());
-        sourceFoldersView.getSelectionModel().clearSelection();
-        destinationIsDefault = false;
-        destinationField.setText(setup.getDestination());
-        includeSubfoldersCheckBox.setSelected(setup.isIncludeSubfolders());
-        moveCheckBox.setSelected(setup.isMove());
-        structureTokens.setAll(setup.getStructureTokens());
-        rebuildStructureEditor();
-        loadingSetup = false;
-        scan();
-    }
-
-    private void persistSetups() {
-        try {
-            SyncSetupStore.save(syncSetups);
-        } catch (IOException ex) {
-            new Alert(Alert.AlertType.ERROR, "Could not save sync setups: "
-                    + ex.getMessage()).showAndWait();
-        }
     }
 
     @FXML
@@ -352,6 +256,7 @@ public class HelloController {
         updateOrganizeButtonState();
         if (sourceFolders.isEmpty()) {
             photos.clear();
+            imageFormatSelection.getChildren().clear();
             updateTreePreview();
             setBusy(false, "Add at least one source folder.");
             return;
@@ -362,27 +267,29 @@ public class HelloController {
             if (source == null) return;
             sources.add(source);
         }
-        setBusy(true, "Scanning ARW files...");
+        setBusy(true, "Scanning image files...");
         boolean includeSubfolders = includeSubfoldersCheckBox.isSelected();
         Task<ObservableList<PhotoFile>> task = new Task<ObservableList<PhotoFile>>() {
             @Override protected ObservableList<PhotoFile> call() throws Exception {
                 ObservableList<PhotoFile> found = FXCollections.observableArrayList();
                 List<Path> files = new ArrayList<>();
                 for (Path source : sources) {
-                    collectArwFiles(source, files, includeSubfolders);
+                    collectImageFiles(source, files, includeSubfolders);
                 }
                 Collections.sort(files);
                 int total = files.size();
                 long lastUiUpdate = 0L;
                 updateMessage("Reading EXIF metadata... (0 of " + total + ")");
                 for (int index = 0; index < total; index++) {
-                    Path path = files.get(index);
                     try {
+                        Path path = files.get(index);
                         found.add(new PhotoFile(path, ExifReader.read(path)));
                     } catch (IOException | RuntimeException ex) {
+                        Path path = files.get(index);
                         PhotoFile photo = new PhotoFile(path, new ExifData(
                                 null, null, null, null, null, null, new java.util.LinkedHashMap<>()));
-                        String detail = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                        String detail = ex.getMessage() == null
+                                ? ex.getClass().getSimpleName() : ex.getMessage();
                         photo.setStatus("Metadata error: " + detail);
                         found.add(photo);
                     }
@@ -403,15 +310,12 @@ public class HelloController {
         task.setOnSucceeded(event -> {
             unbindProgress(task);
             photos.setAll(task.getValue());
+            updateImageFormatSelection();
             scanCompleted = true;
             updateAvailableProperties();
             updateTargets();
             updateStatistics();
-            setBusy(false, photos.size() + " ARW file(s) found.");
-            if (pendingRerun) {
-                pendingRerun = false;
-                Platform.runLater(this::organize);
-            }
+            setBusy(false, photos.size() + " image file(s) found.");
         });
         task.setOnFailed(event -> {
             unbindProgress(task);
@@ -419,12 +323,10 @@ public class HelloController {
             String detail = failure == null || failure.getMessage() == null
                     ? "unknown error" : failure.getMessage();
             setBusy(false, "Scan failed: " + detail);
-            pendingRerun = false;
         });
         task.setOnCancelled(event -> {
             unbindProgress(task);
             setBusy(false, "Scan cancelled.");
-            pendingRerun = false;
         });
         new Thread(task, "exif-scan").start();
     }
@@ -435,7 +337,7 @@ public class HelloController {
         for (PhotoFile photo : photos) {
             for (String name : photo.getMetadata().getProperties().keySet()) {
                 String value = photo.getMetadata().getProperty(name);
-                if (hasPropertyValue(value)) {
+                if (hasPropertyName(name) && hasPropertyValue(value)) {
                     present.merge(name, 1, Integer::sum);
                 }
             }
@@ -450,6 +352,13 @@ public class HelloController {
             displayProperties.add("{" + name + "}");
         }
         availableProperties.setAll(displayProperties);
+        if (!availableProperties.isEmpty()) {
+            for (int index = 0; index < structureTokens.size(); index++) {
+                if (!availableProperties.contains(structureTokens.get(index))) {
+                    structureTokens.set(index, availableProperties.get(0));
+                }
+            }
+        }
         rebuildStructureEditor();
     }
 
@@ -465,12 +374,26 @@ public class HelloController {
     }
 
     private boolean hasPropertyValue(String value) {
-        return value != null
-                && !value.trim().isEmpty()
-                && !"Unknown".equalsIgnoreCase(value.trim())
-                && !"No GPS location".equalsIgnoreCase(value.trim())
-                && !"Location unavailable".equalsIgnoreCase(value.trim())
-                && !"Region unavailable".equalsIgnoreCase(value.trim());
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return !normalized.contains("unknown")
+                && !normalized.contains("no gps location")
+                && !normalized.contains("unavailable")
+                && !normalized.contains("invalid gps location")
+                && !normalized.equals("n/a")
+                && !normalized.equals("na")
+                && !normalized.contains("not available")
+                && !normalized.equals("null")
+                && !normalized.equals("undefined")
+                && !normalized.equals("none");
+    }
+
+    private boolean hasPropertyName(String name) {
+        return name != null
+                && !name.trim().isEmpty()
+                && !name.toLowerCase(Locale.ROOT).contains("unknown");
     }
 
     @FXML
@@ -498,55 +421,55 @@ public class HelloController {
 
     private void updateStatistics() {
         int total = photos.size();
-        int dateTime = 0;
-        int year = 0;
-        int month = 0;
-        int day = 0;
-        int hour = 0;
-        int minute = 0;
-        int second = 0;
-        int make = 0;
-        int model = 0;
-        int location = 0;
-        int latitude = 0;
-        int longitude = 0;
-
+        Map<String, Integer> occurrences = new HashMap<>();
         for (PhotoFile photo : photos) {
-            ExifData exif = photo.getMetadata();
-            if (exif.getDateTime() != null) {
-                dateTime++;
-                year++;
-                month++;
-                day++;
-                hour++;
-                minute++;
-                second++;
+            for (Map.Entry<String, String> property : photo.getMetadata().getProperties().entrySet()) {
+                if (hasPropertyName(property.getKey()) && hasPropertyValue(property.getValue())) {
+                    occurrences.merge(property.getKey(), 1, Integer::sum);
+                }
             }
-            if (hasValue(exif.getMake(), "Unknown")) make++;
-            if (hasValue(exif.getModel(), "Unknown")) model++;
-            if (hasValue(exif.getLocation(), "No GPS location")) location++;
-            if (exif.getLatitude() != null) latitude++;
-            if (exif.getLongitude() != null) longitude++;
         }
-
-        statistics.setAll(
-                "Photos scanned: " + total,
-                "Capture date/time: " + dateTime + " / " + total,
-                "Year: " + year + " / " + total,
-                "Month: " + month + " / " + total,
-                "Day: " + day + " / " + total,
-                "Hour: " + hour + " / " + total,
-                "Minute: " + minute + " / " + total,
-                "Second: " + second + " / " + total,
-                "Camera make: " + make + " / " + total,
-                "Camera model: " + model + " / " + total,
-                "Human-readable location: " + location + " / " + total,
-                "GPS latitude: " + latitude + " / " + total,
-                "GPS longitude: " + longitude + " / " + total);
+        List<Map.Entry<String, Integer>> sorted = new ArrayList<>(occurrences.entrySet());
+        sorted.sort(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder())
+                .thenComparing(Map.Entry.comparingByKey()));
+        List<String> values = new ArrayList<>();
+        values.add("Photos scanned: " + total);
+        for (Map.Entry<String, Integer> property : sorted) {
+            values.add(property.getKey() + ": " + property.getValue() + " / " + total);
+        }
+        statistics.setAll(values);
     }
 
-    private boolean hasValue(String value, String missingValue) {
-        return value != null && !value.trim().isEmpty() && !missingValue.equals(value);
+    private void updateImageFormatSelection() {
+        imageFormatSelection.getChildren().clear();
+        Map<String, CheckBox> formats = new LinkedHashMap<>();
+        for (PhotoFile photo : photos) {
+            String format = fileExtension(photo.getSource());
+            if (!formats.containsKey(format)) {
+                CheckBox checkBox = new CheckBox(format.toUpperCase(Locale.ROOT));
+                checkBox.setSelected(true);
+                formats.put(format, checkBox);
+                imageFormatSelection.getChildren().add(checkBox);
+            }
+        }
+        imageFormatCheckBoxes = formats;
+    }
+
+    private List<PhotoFile> selectedPhotos() {
+        List<PhotoFile> selected = new ArrayList<>();
+        for (PhotoFile photo : photos) {
+            CheckBox checkBox = imageFormatCheckBoxes.get(fileExtension(photo.getSource()));
+            if (checkBox != null && checkBox.isSelected()) {
+                selected.add(photo);
+            }
+        }
+        return selected;
+    }
+
+    private static String fileExtension(Path path) {
+        String name = path.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     private void setDefaultDestination() {
@@ -594,21 +517,37 @@ public class HelloController {
     private void organize() {
         Path destination = validDirectory(destinationField.getText(), "Select a valid destination folder.");
         if (destination == null || photos.isEmpty()) return;
+        List<PhotoFile> selected = selectedPhotos();
+        if (selected.isEmpty()) {
+            setBusy(false, "Select at least one image format to organize.");
+            return;
+        }
         updateTargets();
         setBusy(true, "Organizing files...");
         Task<Integer> task = new Task<Integer>() {
             @Override protected Integer call() throws Exception {
                 int completed = 0;
-                for (PhotoFile photo : photos) {
-                    Path target = uniqueTarget(Paths.get(photo.getTarget()).isAbsolute()
+                for (PhotoFile photo : selected) {
+                    updateMessage("Organizing files... " + photo.getFileName());
+                    Path requestedTarget = Paths.get(photo.getTarget()).isAbsolute()
                             ? Paths.get(photo.getTarget())
-                            : destination.resolve(photo.getTarget()));
+                            : destination.resolve(photo.getTarget());
+                    boolean moving = moveCheckBox.isSelected();
+                    Path target = moving ? uniqueTarget(requestedTarget) : requestedTarget;
                     Files.createDirectories(target.getParent());
-                    if (moveCheckBox.isSelected()) Files.move(photo.getSource(), target);
-                    else Files.copy(photo.getSource(), target, StandardCopyOption.COPY_ATTRIBUTES);
-                    photo.setStatus((moveCheckBox.isSelected() ? "Moved to " : "Copied to ") + target);
+                    if (moving) {
+                        Files.move(photo.getSource(), target);
+                        photo.setStatus("Moved to " + target);
+                    } else {
+                        try {
+                            Files.copy(photo.getSource(), target, StandardCopyOption.COPY_ATTRIBUTES);
+                            photo.setStatus("Copied to " + target);
+                        } catch (FileAlreadyExistsException ex) {
+                            photo.setStatus("Skipped (already exists): " + target);
+                        }
+                    }
                     completed++;
-                    updateProgress(completed, photos.size());
+                    updateProgress(completed, selected.size());
                 }
                 return completed;
             }
@@ -627,7 +566,7 @@ public class HelloController {
         });
         task.setOnSucceeded(event -> {
             unbindProgress(task);
-            setBusy(false, task.getValue() + " file(s) organized.");
+            setBusy(false, task.getValue() + " selected file(s) organized.");
         });
         new Thread(task, "exif-organize").start();
     }
@@ -650,17 +589,29 @@ public class HelloController {
         return candidate;
     }
 
-    private static boolean isArw(Path path) {
-        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".arw");
+    private static boolean isSupportedImage(Path path) {
+        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        int extensionStart = fileName.lastIndexOf('.');
+        if (extensionStart < 0) {
+            return false;
+        }
+        return SUPPORTED_IMAGE_EXTENSIONS.contains(fileName.substring(extensionStart + 1));
     }
 
-    private static void collectArwFiles(Path directory, List<Path> files, boolean includeSubfolders) throws IOException {
+    private static final Set<String> SUPPORTED_IMAGE_EXTENSIONS = Set.of(
+            "3fr", "arw", "cr2", "cr3", "dcr", "dng", "erf", "fff", "iiq", "k25",
+            "kdc", "mef", "mos", "mrw", "nef", "nrw", "orf", "pef", "raf", "raw",
+            "rw2", "rwl", "sr2", "srf", "srw", "x3f",
+            "jpg", "jpeg", "jpe", "png", "gif", "bmp", "tif", "tiff", "webp", "heic");
+
+    private static void collectImageFiles(Path directory, List<Path> files, boolean includeSubfolders)
+            throws IOException {
         DirectoryStream<Path> entries = Files.newDirectoryStream(directory);
         try {
             for (Path entry : entries) {
                 if (includeSubfolders && Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS)) {
-                    collectArwFiles(entry, files, true);
-                } else if (Files.isRegularFile(entry) && isArw(entry)) {
+                    collectImageFiles(entry, files, true);
+                } else if (Files.isRegularFile(entry) && isSupportedImage(entry)) {
                     files.add(entry);
                 }
             }
@@ -695,16 +646,6 @@ public class HelloController {
             progressBar.setProgress(0);
         }
         statusLabel.setText(message);
-        updateSetupButtons();
-    }
-
-    private void updateSetupButtons() {
-        if (rerunButton != null) {
-            rerunButton.setDisable(busy || syncSetupsView.getSelectionModel().isEmpty());
-        }
-        if (deleteSetupButton != null) {
-            deleteSetupButton.setDisable(busy || syncSetupsView.getSelectionModel().isEmpty());
-        }
     }
 
     private void updateOrganizeButtonState() {

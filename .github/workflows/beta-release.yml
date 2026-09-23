@@ -1,0 +1,108 @@
+name: Beta release
+
+on:
+  push:
+    tags:
+      - "v0.5-beta"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            package_type: exe
+            asset: exif-organizer-windows-x64.exe
+          - platform: macos
+            runner: macos-latest
+            package_type: dmg
+            asset: exif-organizer-macos.dmg
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Make Gradle executable
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Build application distribution
+        run: ./gradlew installDist --no-daemon
+        shell: bash
+
+      - name: Package Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $input = "build/install/exif-organizer/lib"
+          $jar = "exif-organizer-0.5.0-beta.jar"
+          jpackage `
+            --type exe `
+            --name "EXIF Organizer" `
+            --app-version "0.5.0" `
+            --input $input `
+            --main-jar $jar `
+            --main-class org.brasbat.exiforganizer.Launcher `
+            --dest build/release `
+            --win-dir-chooser `
+            --win-menu `
+            --win-shortcut `
+            --vendor "brasbat"
+          Move-Item "build/release/EXIF Organizer-0.5.0.exe" "build/release/${{ matrix.asset }}"
+
+      - name: Package macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p build/release
+          jpackage \
+            --type dmg \
+            --name "EXIF Organizer" \
+            --app-version "0.5.0" \
+            --input build/install/exif-organizer/lib \
+            --main-jar exif-organizer-0.5.0-beta.jar \
+            --main-class org.brasbat.exiforganizer.Launcher \
+            --dest build/release \
+            --mac-package-name "EXIF Organizer"
+          mv "build/release/EXIF Organizer-0.5.0.dmg" "build/release/${{ matrix.asset }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-package
+          path: build/release/${{ matrix.asset }}
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: build/release
+          merge-multiple: true
+
+      - name: Create beta release and upload packages
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.5-beta
+          name: EXIF Organizer v0.5 Beta
+          prerelease: true
+          generate_release_notes: true
+          files: build/release/*

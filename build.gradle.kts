@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "org.brasbat"
-version = "1.0-SNAPSHOT"
+version = "0.5.0-beta"
 
 repositories {
     mavenCentral()

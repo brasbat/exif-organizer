@@ -61,6 +61,30 @@ public final class PathTemplate {
     }
 
     private static String sanitize(String value) {
-        return value.replaceAll("[<>:\"|?*]", "_").trim();
+        if (value == null) {
+            return "Unknown";
+        }
+        String sanitized = value.trim()
+                .replaceAll("[\\s.]+", "_")
+                .replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^[_\\.]+|[_\\.]+$", "");
+        if (sanitized.isEmpty()) {
+            return "Unknown";
+        }
+        if (isReservedWindowsName(sanitized)) {
+            return "_" + sanitized;
+        }
+        return sanitized;
+    }
+
+    private static boolean isReservedWindowsName(String value) {
+        String normalized = value.toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("con")
+                || normalized.equals("prn")
+                || normalized.equals("aux")
+                || normalized.equals("nul")
+                || normalized.matches("com[1-9]")
+                || normalized.matches("lpt[1-9]");
     }
 }

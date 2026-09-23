@@ -12,19 +12,6 @@
             <Label text="Configure the source, destination, and EXIF-based folder structure. The preview updates as you edit the configuration." styleClass="subtitle" wrapText="true"/>
         </VBox>
     </top>
-    <left>
-        <VBox spacing="10" minWidth="230" prefWidth="250" maxWidth="280" styleClass="settings-panel">
-            <padding><Insets top="16" right="12" bottom="16" left="12"/></padding>
-            <Label text="Saved sync setups" style="-fx-font-size: 18px; -fx-font-weight: bold;"/>
-            <Label text="Select a setup to restore its folders and options." styleClass="hint" wrapText="true"/>
-            <ListView fx:id="syncSetupsView" VBox.vgrow="ALWAYS"/>
-            <Button text="Save current setup..." styleClass="secondary-button" onAction="#saveSetup" maxWidth="Infinity"/>
-            <HBox spacing="6">
-                <Button fx:id="rerunButton" text="Rerun selected" styleClass="accent" onAction="#rerunSelected" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button fx:id="deleteSetupButton" text="Delete" styleClass="secondary-button" onAction="#deleteSelectedSetup"/>
-            </HBox>
-        </VBox>
-    </left>
     <center>
         <SplitPane styleClass="content-split" dividerPositions="0.38">
             <ScrollPane fitToWidth="true" minWidth="380" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
@@ -43,7 +30,6 @@
                             </HBox>
                             <CheckBox fx:id="includeSubfoldersCheckBox" text="Include subfolders" selected="true" onAction="#sourceOptionsChanged"/>
                         </VBox>
-                        <Separator/>
                         <VBox spacing="8" styleClass="settings-section">
                             <Label text="Target" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
                             <HBox spacing="8">
@@ -57,7 +43,13 @@
                             <Label text="Folder structure" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
                             <Label text="Each level becomes one folder. Select the EXIF property used for that level." styleClass="hint" wrapText="true"/>
                             <VBox fx:id="folderStructureEditor" spacing="6"/>
-                            <Label text="Available properties include date parts, camera make, model, and formatted capture date." styleClass="hint" wrapText="true"/>
+                            <Label text="Available properties include date parts, camera make, model, and all other available exif properties." styleClass="hint" wrapText="true"/>
+                        </VBox>
+                        <Separator/>
+                        <VBox spacing="8" styleClass="settings-section">
+                            <Label text="Image formats to organize" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
+                            <Label text="Select which discovered image formats should be organized." styleClass="hint" wrapText="true"/>
+                            <VBox fx:id="imageFormatSelection" spacing="4"/>
                         </VBox>
                         <Separator/>
                         <Button fx:id="scanButton" text="Rescan source" styleClass="accent" onAction="#scan" maxWidth="Infinity"/>
